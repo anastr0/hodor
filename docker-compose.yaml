@@ -1,0 +1,39 @@
+services:
+  db:
+    container_name: postgresdb
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: example
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+
+  cache:
+    container_name: rediscache
+    image: redis:alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redisdata:/data
+
+  web:
+    container_name: nginxweb
+    image: nginx:alpine
+    ports:
+      - "8000:80"
+    volumes:
+      - ./test:/usr/share/nginx/html
+
+volumes:
+  pgdata:
+  redisdata:
