@@ -1,0 +1,7 @@
+# environment
+
+env/
+__pycache__/
+*.pyc
+
+bkp_requirements.txt
