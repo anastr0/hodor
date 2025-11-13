@@ -25,14 +25,28 @@ services:
       retries: 5
     volumes:
       - redisdata:/data
+  
+  api:
+    container_name: fastapiapp
+    build: ./docker/fastapi/
+    ports:
+      - "5000:80"
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:  
+        condition: service_healthy
 
   web:
     container_name: nginxweb
     image: nginx:alpine
     ports:
       - "8000:80"
+    depends_on:
+      - api
     volumes:
-      - ./test:/usr/share/nginx/html
+      - ./pages:/usr/share/nginx/html
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
 
 volumes:
   pgdata:
