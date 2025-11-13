@@ -1,4 +1,3 @@
 # hodor
 
-FastAPI with rate limiter
-
+Learner project to understand distributed rate limiting
