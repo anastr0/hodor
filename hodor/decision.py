@@ -19,11 +19,23 @@ class TokenBucket(DecisionEngine):
 class LeakingBucket(DecisionEngine):
     pass
 
+
 class FixedWindowCounter(DecisionEngine):
     pass
+
 
 class SlidingWindowLog(DecisionEngine):
     pass
 
+
 class SlidingWindowCounter(DecisionEngine):
     pass
+
+
+STRATEGIES = {
+    "token-bucket": TokenBucket,
+    "leaking-bucket": LeakingBucket,
+    "fixed-window-counter": FixedWindowCounter,
+    "sliding-window-log": SlidingWindowLog,
+    "sliding-window-counter": SlidingWindowCounter,
+}
