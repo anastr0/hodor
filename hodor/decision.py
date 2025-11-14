@@ -13,3 +13,17 @@ class DecisionEngine(ABC):
         pass
 
 
+class TokenBucket(DecisionEngine):
+    pass
+
+class LeakingBucket(DecisionEngine):
+    pass
+
+class FixedWindowCounter(DecisionEngine):
+    pass
+
+class SlidingWindowLog(DecisionEngine):
+    pass
+
+class SlidingWindowCounter(DecisionEngine):
+    pass
