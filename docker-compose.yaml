@@ -1,6 +1,6 @@
 services:
   db:
-    container_name: postgresdb
+    container_name: hodor_postgresdb
     image: postgres
     restart: always
     environment:
@@ -13,7 +13,7 @@ services:
       test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
 
   cache:
-    container_name: rediscache
+    container_name: hodor_rediscache
     image: redis:alpine
     restart: always
     ports:
@@ -27,7 +27,7 @@ services:
       - redisdata:/data
   
   api:
-    container_name: fastapiapp
+    container_name: hodor_fastapiapp
     build: ./docker/fastapi/
     ports:
       - "5000:80"
@@ -38,7 +38,7 @@ services:
         condition: service_healthy
 
   web:
-    container_name: nginxweb
+    container_name: hodor_nginxweb
     image: nginx:alpine
     ports:
       - "8000:80"
