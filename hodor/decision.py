@@ -1,11 +1,10 @@
 from abc import ABC, abstractmethod
-from config import RL_CONFIG
+from .config import RL_CONFIG
+
 
 class DecisionEngine(ABC):
-    limit = None
-    counter = None
 
-    def __init__(self, limit=RL_CONFIG.LIMIT, counter=0):
+    def __init__(self):
         super().__init__()
 
     @abstractmethod
@@ -14,7 +13,12 @@ class DecisionEngine(ABC):
 
 
 class TokenBucket(DecisionEngine):
-    pass
+    BUCKET_CAPACITY = 5  # maximum number of tokens bucket can hold
+    TOKEN_REFILL_RATE = 1  # tokens added per second to bucket
+
+    def __init__(self, capacity=5, refill_rate=1):
+        super().__init__()
+
 
 class LeakingBucket(DecisionEngine):
     pass
@@ -39,3 +43,12 @@ STRATEGIES = {
     "sliding-window-log": SlidingWindowLog,
     "sliding-window-counter": SlidingWindowCounter,
 }
+
+
+def get_ratelimiter_instance(
+    limit=RL_CONFIG["DEFAULT_LIMIT"],
+    rate=RL_CONFIG["DEFAULT_RATE"],
+    strategy=RL_CONFIG["DEFAULT_STRATEGY"],
+):
+    # TODO : validate strategy and inputs
+    return STRATEGIES[strategy]()

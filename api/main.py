@@ -3,9 +3,11 @@ from typing import Union
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from hodor import ratelimit
+from hodor import TokenBucket, get_ratelimiter_instance, ratelimit
+
 
 app = FastAPI()
+
 
 class Item(BaseModel):
     name: str
