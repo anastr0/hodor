@@ -1,5 +1,5 @@
 services:
-  db:
+  hodor_db:
     container_name: hodor_postgresdb
     image: postgres
     restart: always
@@ -12,7 +12,7 @@ services:
     healthcheck:
       test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
 
-  cache:
+  hodor_cache:
     container_name: hodor_rediscache
     image: redis:alpine
     restart: always
@@ -26,24 +26,24 @@ services:
     volumes:
       - redisdata:/data
   
-  api:
+  hodor_api:
     container_name: hodor_fastapiapp
     build: ./docker/fastapi/
     ports:
       - "5000:80"
     depends_on:
-      db:
+      hodor_db:
         condition: service_healthy
-      cache:  
+      hodor_cache:
         condition: service_healthy
 
-  web:
+  hodor_web:
     container_name: hodor_nginxweb
     image: nginx:alpine
     ports:
       - "8000:80"
     depends_on:
-      - api
+      - hodor_api
     volumes:
       - ./pages:/usr/share/nginx/html
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
