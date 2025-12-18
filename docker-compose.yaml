@@ -25,10 +25,10 @@ services:
       retries: 5
     volumes:
       - redisdata:/data
-  
+
   hodor_api:
     container_name: hodor_fastapiapp
-    build: ./docker/fastapi/
+    build: .
     ports:
       - "5000:80"
     depends_on:

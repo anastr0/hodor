@@ -1,7 +1,7 @@
 FROM python:3.11-slim-bookworm
 
 
-WORKDIR /code
+WORKDIR /hodor_code
 
 
 COPY ./requirements.txt /code/requirements.txt
