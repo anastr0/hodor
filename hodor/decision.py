@@ -1,14 +1,24 @@
 from abc import ABC, abstractmethod
 from .config import RL_CONFIG
+from .utils import get_logger
 
+_LOG = get_logger(__name__)
+
+from utils import 
 
 class DecisionEngine(ABC):
-
+    """Strategy pattern for deciding ratelimit option"""
     def __init__(self):
         super().__init__()
 
     @abstractmethod
-    def set_strategy(self):
+    def _set_strategy(self):
+        pass
+
+    @abstractmethod
+    def allow(self, request):
+        """Return true if request can be allowed
+        False if ratelimit exceeded"""
         pass
 
 
@@ -18,6 +28,22 @@ class TokenBucket(DecisionEngine):
 
     def __init__(self, capacity=5, refill_rate=1):
         super().__init__()
+    
+    def _set_strategy(self):
+        # TODO : init token bucket specific params
+        # TODO : set token bucket capacity and refill rate
+        self.curr_capacity = 0
+        
+        _LOG.debug("Set Token Bucket strategy")
+        return super()._set_strategy()
+
+    def allow(self, request):
+        # TODO : token bucket specific allow logic
+        return super().allow(request)
+    
+    def _refill_tokens(self):
+        # TODO : logic to refill tokens based on time elapsed
+        pass
 
 
 class LeakingBucket(DecisionEngine):
