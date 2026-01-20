@@ -1,7 +1,7 @@
 FROM python:3.11-slim-bookworm
 
 
-WORKDIR /hodor_code
+WORKDIR /code
 
 
 COPY ./requirements.txt /code/requirements.txt
@@ -10,9 +10,13 @@ COPY ./requirements.txt /code/requirements.txt
 RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
 
-COPY ./api /code/api    
+COPY ./api /code/app 
+COPY ./hodor /code/hodor
 
+RUN ls
 
-CMD ["fastapi", "run", "api/main.py", "--port", "5000"]
+RUN echo "Build is running"
+
+CMD ["fastapi", "run", "app/main.py", "--port", "5000"]
 
 EXPOSE 5000
