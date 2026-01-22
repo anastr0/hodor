@@ -1,9 +1,9 @@
 from typing import Union
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException, status
 from pydantic import BaseModel
 
-from hodor import TokenBucket, get_ratelimiter_instance, ratelimit
+from hodor import TokenBucket, get_ratelimiter_instance, ratelimit, sync_ratelimiter
 
 
 app = FastAPI()
@@ -20,9 +20,10 @@ def read_root():
     return {"Hello": "World"}
 
 
-@ratelimit(limit=1, window=60)
+
 @app.get("/items/{item_id}")
-def read_item(item_id: int, q: Union[str, None] = None):
+@sync_ratelimiter
+def read_item(item_id: int, request: Request, q: Union[str, None] = None):
     return {"item_id": item_id, "q": q}
 
 
