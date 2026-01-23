@@ -15,13 +15,9 @@ import functools
 _LOG = get_logger(__name__, logging.DEBUG)
 
 
-# TODO sync wrapper
 def sync_ratelimiter(func):
     @functools.wraps(func)
-    def wrapper(*args, **kwargs):  # key=None, limit=5, window=1,
-        # lib doesnt know which framwork is being used
-        # get args directly as kwargs
-        # args = key, ratelimit = {timewindow, req count allowed per timewindow}
+    def wrapper(*args, **kwargs):
         request: Request = kwargs.get("request")
         limit = kwargs.get("limit", RL_CONFIG.DEFAULT_LIMIT)  # no of requests
         window = kwargs.get("window", RL_CONFIG.DEFAULT_WINDOW)  # in seconds
@@ -41,7 +37,6 @@ def sync_ratelimiter(func):
     return wrapper
 
 
-# TODO async wrapper - test if any issues
 def async_ratelimiter(func):
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
