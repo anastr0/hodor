@@ -172,9 +172,9 @@ STRATEGIES = {
 
 
 def get_ratelimiter_instance(
-    limit=RL_CONFIG["DEFAULT_MAX_REQUESTS"],
-    window=RL_CONFIG["DEFAULT_TIME_INTERVAL"],
-    strategy=RL_CONFIG["DEFAULT_STRATEGY"],
+    limit=RL_CONFIG.DEFAULT_LIMIT,
+    window=RL_CONFIG.DEFAULT_WINDOW,
+    strategy=RL_CONFIG.DEFAULT_STRATEGY,
 ):
     # TODO : validate strategy and inputs
     return STRATEGIES[strategy]()

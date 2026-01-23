@@ -23,9 +23,9 @@ def sync_ratelimiter(func):
         # get args directly as kwargs
         # args = key, ratelimit = {timewindow, req count allowed per timewindow}
         request: Request = kwargs.get("request")
-        limit = kwargs.get("limit", RL_CONFIG['DEFAULT_MAX_REQUESTS'])  # no of requests
-        window = kwargs.get("window", RL_CONFIG)  # in seconds
-        strategy = kwargs.get("strategy", "fixed-window-counter")
+        limit = kwargs.get("limit", RL_CONFIG.DEFAULT_LIMIT)  # no of requests
+        window = kwargs.get("window", RL_CONFIG.DEFAULT_WINDOW)  # in seconds
+        strategy = kwargs.get("strategy", RL_CONFIG.DEFAULT_STRATEGY)
         key_args = (func.__name__, request.client.host)
         ratelimiter: DecisionEngine = STRATEGIES[strategy](key_args, limit, window)
 
@@ -46,9 +46,9 @@ def async_ratelimiter(func):
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         request: Request = kwargs.get("request")
-        limit = kwargs.get("limit", 5)  # no of requests
-        window = kwargs.get("window", 5)  # in seconds
-        strategy = kwargs.get("strategy", "fixed-window-counter")
+        limit = kwargs.get("limit", RL_CONFIG.DEFAULT_LIMIT)  # no of requests
+        window = kwargs.get("window", RL_CONFIG.DEFAULT_WINDOW)  # in seconds
+        strategy = kwargs.get("strategy", RL_CONFIG.DEFAULT_STRATEGY)
         key_args = (func.__name__, request.client.host)
         ratelimiter: DecisionEngine = STRATEGIES[strategy](key_args, limit, window)
 
