@@ -29,7 +29,7 @@ def sync_ratelimiter(func):
         key_args = (func.__name__, request.client.host)
         ratelimiter: DecisionEngine = STRATEGIES[strategy](key_args, limit, window)
 
-        if ratelimiter.allow(key_args, limit=limit, window=window):
+        if ratelimiter.allow(key_args):
             return func(*args, **kwargs)
         else:
             # TODO : make this framework agnostic response
@@ -60,4 +60,5 @@ def async_ratelimiter(func):
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 content={"message": "Too many requests"},
             )
+
     return wrapper

@@ -37,7 +37,6 @@ class TokenBucket(DecisionEngine):
         # TODO : set token bucket capacity and refill rate
         self.curr_capacity = 0
 
-        _LOG.debug("Set Token Bucket strategy")
         return super()._set_strategy()
 
     def allow(self, request):
@@ -59,7 +58,14 @@ class FixedWindowCounter(DecisionEngine):
         self._set_strategy(*args, **kwargs)
         super().__init__()
 
-    def _set_strategy(self, key_args, limit=5, window=5, *args, **kwargs):
+    def _set_strategy(
+        self,
+        key_args,
+        limit=RL_CONFIG.DEFAULT_LIMIT,
+        window=RL_CONFIG.DEFAULT_WINDOW,
+        *args,
+        **kwargs,
+    ):
         """
         Docstring for _set_strategy
 
@@ -76,7 +82,7 @@ class FixedWindowCounter(DecisionEngine):
         # TODO create key in redis with corresponding values,
         # set expiry to window_boundary
 
-        self.set_key(key_string=key_string)
+        self.set_key(key_string=key_string, nx=True)
 
     def get_key_string(self, key_args):
         # TODO : create key from view/API func, for a specific user/IP
@@ -97,7 +103,9 @@ class FixedWindowCounter(DecisionEngine):
         key_string = self.get_key_string(key_args)
         return self.redis_client.hgetall(key_string)
 
-    def set_key(self, key_args=None, key_string=None, expiry=None, values=None):
+    def set_key(
+        self, key_args=None, key_string=None, expiry=None, values=None, nx=False
+    ):
         # TODO : set key in redis
         window_boundary = self.get_window_boundary(self.window)
         if not expiry:
@@ -106,21 +114,21 @@ class FixedWindowCounter(DecisionEngine):
         if not key_string:
             key_string = self.get_key_string(key_args)
 
-        if not values:
-            _LOG.error("But I gave values??")
+        if nx:
             values = {
                 "timestamp": window_boundary,
                 "count": 1,  # how many requests allowed so far
             }
-
-        self.redis_client.hset(key_string, mapping=values)
+            self.redis_client.hsetnx(key_string, "timestamp", window_boundary)
+            self.redis_client.hsetnx(key_string, "count", 1)
+            self.redis_client.expire(key_string, 300)
+        else:
+            self.redis_client.hset(key_string, mapping=values)
 
     def get_key_value(self, key_string):
+        return self.redis_client.hgetall(key_string)
 
-        values = self.redis_client.hgetall(key_string)
-        return values
-
-    def allow(self, key_args, limit=5, window=5):
+    def allow(self, key_args):
         """Return true if request can be allowed
         False if ratelimit exceeded"""
         key_string = self.get_key_string(key_args)
@@ -133,15 +141,14 @@ class FixedWindowCounter(DecisionEngine):
             if datetime.now() < datetime.fromtimestamp(
                 int(values["timestamp"].split(".")[0])
             ):
-                if int(values["count"]) < limit:
+                if int(values["count"]) < self.limit:
                     values["count"] = int(values["count"]) + 1
                     self.set_key(key_string=key_string, values=values)
-
                     return True
                 else:
                     return False
             else:
-                values["timestamp"] = self.get_window_boundary(window)
+                values["timestamp"] = self.get_window_boundary(self.window)
                 self.set_key(key_string=key_string, values=values)
                 return True
 
