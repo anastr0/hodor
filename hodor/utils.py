@@ -1,9 +1,7 @@
-# TODO : redis utils
-
-# TODO : logger utils
 import logging
 import sys
 import redis
+
 
 def get_logger(name, level=logging.INFO):
     """
@@ -31,22 +29,10 @@ def get_logger(name, level=logging.INFO):
 
 def get_redis_service():
     """
-    Get redis instance and return to be used
-    Behaviour : Return a singleton instance, memory safe
-    The instance is gracefully closed or connection pooled conns
-    TODO : research how redis is used in concurrent python apps
+    # TODO : lifespan events and dependency injection
     """
 
-    return redis.Redis(host='hodor_cache', port=6379, db=0)
-
-def get_postgres_connection():
-    """
-    Return a postgres connection
-    Behaviour : To be used as context manager
-    TODO : research how postgres conns are managed in concurrent python apps
-    """
-    pass
+    return redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
 
 
 redis_client = get_redis_service()
-postgres_connection = get_postgres_connection()
