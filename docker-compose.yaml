@@ -4,9 +4,9 @@ services:
     image: postgres:17
     restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_DB: sample_db
-      POSTGRES_PASSWORD: example
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
@@ -31,8 +31,6 @@ services:
   hodor_api:
     container_name: hodor_api
     build: .
-    ports:
-      - "5000:80"
     depends_on:
       hodor_db:
         condition: service_healthy
