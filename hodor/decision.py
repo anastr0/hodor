@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 
 from .config import RL_CONFIG
-from .utils import get_logger, get_redis_service
+from .utils import get_logger
 
 _LOG = get_logger(__name__)
 
@@ -11,8 +11,9 @@ _LOG = get_logger(__name__)
 class DecisionEngine(ABC):
     """Strategy pattern for deciding ratelimit option"""
 
-    def __init__(self):
+    def __init__(self, redis_client=None):
         super().__init__()
+        self.redis_client = redis_client
 
     @abstractmethod
     def _set_strategy(self):
@@ -29,8 +30,18 @@ class TokenBucket(DecisionEngine):
     BUCKET_CAPACITY = 5  # maximum number of tokens bucket can hold
     TOKEN_REFILL_RATE = 1  # tokens added per second to bucket
 
-    def __init__(self, capacity=5, refill_rate=1):
-        super().__init__()
+    def __init__(
+        self,
+        key_args=None,
+        limit=RL_CONFIG.DEFAULT_LIMIT,
+        window=RL_CONFIG.DEFAULT_WINDOW,
+        capacity=5,
+        refill_rate=1,
+        redis_client=None,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(redis_client=redis_client)
 
     def _set_strategy(self):
         # TODO : init token bucket specific params
@@ -49,14 +60,30 @@ class TokenBucket(DecisionEngine):
 
 
 class LeakingBucket(DecisionEngine):
-    pass
+    def __init__(
+        self,
+        key_args=None,
+        limit=RL_CONFIG.DEFAULT_LIMIT,
+        window=RL_CONFIG.DEFAULT_WINDOW,
+        redis_client=None,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(redis_client=redis_client)
 
 
 class FixedWindowCounter(DecisionEngine):
-    def __init__(self, *args, **kwargs):
-        self.redis_client = get_redis_service()
-        self._set_strategy(*args, **kwargs)
-        super().__init__()
+    def __init__(
+        self,
+        key_args,
+        limit=RL_CONFIG.DEFAULT_LIMIT,
+        window=RL_CONFIG.DEFAULT_WINDOW,
+        redis_client=None,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(redis_client=redis_client)
+        self._set_strategy(key_args, limit, window, *args, **kwargs)
 
     def _set_strategy(
         self,
@@ -123,6 +150,11 @@ class FixedWindowCounter(DecisionEngine):
             self.redis_client.hsetnx(key_string, "count", 1)
             self.redis_client.expire(key_string, 300)
         else:
+            if values is None:
+                values = {
+                    "timestamp": window_boundary,
+                    "count": 1,
+                }
             self.redis_client.hset(key_string, mapping=values)
 
     def get_key_value(self, key_string):
@@ -154,7 +186,16 @@ class FixedWindowCounter(DecisionEngine):
 
 
 class SlidingWindowLog(DecisionEngine):
-    pass
+    def __init__(
+        self,
+        key_args=None,
+        limit=RL_CONFIG.DEFAULT_LIMIT,
+        window=RL_CONFIG.DEFAULT_WINDOW,
+        redis_client=None,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(redis_client=redis_client)
 
 
 class SlidingWindowCounter(DecisionEngine):
@@ -162,7 +203,19 @@ class SlidingWindowCounter(DecisionEngine):
     Implementation of Sliding Window Counter Ratelimiting Strategy
     """
 
-    def _set_strategy(self):
+    def __init__(
+        self,
+        key_args=None,
+        limit=RL_CONFIG.DEFAULT_LIMIT,
+        window=RL_CONFIG.DEFAULT_WINDOW,
+        redis_client=None,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(redis_client=redis_client)
+        self._set_strategy(key_args, limit, window, *args, **kwargs)
+
+    def _set_strategy(self, *args, **kwargs):
         return super()._set_strategy()
 
     def allow(self, request):
@@ -182,6 +235,7 @@ def get_ratelimiter_instance(
     limit=RL_CONFIG.DEFAULT_LIMIT,
     window=RL_CONFIG.DEFAULT_WINDOW,
     strategy=RL_CONFIG.DEFAULT_STRATEGY,
+    redis_client=None,
 ):
     # TODO : validate strategy and inputs
-    return STRATEGIES[strategy]()
+    return STRATEGIES[strategy](None, limit, window, redis_client=redis_client)

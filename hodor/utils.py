@@ -1,6 +1,5 @@
 import logging
 import sys
-import redis
 
 
 def get_logger(name, level=logging.INFO):
@@ -29,10 +28,11 @@ def get_logger(name, level=logging.INFO):
 
 def get_redis_service():
     """
-    # TODO : lifespan events and dependency injection
+    Legacy helper for creating a Redis client.
+
+    Prefer creating exactly one client during the FastAPI app lifespan
+    and injecting it (e.g. via request.app.state.redis_client).
     """
+    import redis
 
     return redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
-
-
-redis_client = get_redis_service()

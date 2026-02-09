@@ -14,6 +14,16 @@ import functools
 
 _LOG = get_logger(__name__, logging.DEBUG)
 
+def _get_redis_client_from_request(request: Request):
+    redis_client = getattr(getattr(request, "app", None), "state", None)
+    redis_client = getattr(redis_client, "redis_client", None)
+    if redis_client is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal Server Error",
+        )
+    return redis_client
+
 
 def sync_ratelimiter(func):
     @functools.wraps(func)
@@ -23,7 +33,10 @@ def sync_ratelimiter(func):
         window = kwargs.get("window", RL_CONFIG.DEFAULT_WINDOW)  # in seconds
         strategy = kwargs.get("strategy", RL_CONFIG.DEFAULT_STRATEGY)
         key_args = (func.__name__, request.client.host)
-        ratelimiter: DecisionEngine = STRATEGIES[strategy](key_args, limit, window)
+        redis_client = _get_redis_client_from_request(request)
+        ratelimiter: DecisionEngine = STRATEGIES[strategy](
+            key_args, limit, window, redis_client=redis_client
+        )
 
         if ratelimiter.allow(key_args):
             return func(*args, **kwargs)
@@ -45,7 +58,10 @@ def async_ratelimiter(func):
         window = kwargs.get("window", RL_CONFIG.DEFAULT_WINDOW)  # in seconds
         strategy = kwargs.get("strategy", RL_CONFIG.DEFAULT_STRATEGY)
         key_args = (func.__name__, request.client.host)
-        ratelimiter: DecisionEngine = STRATEGIES[strategy](key_args, limit, window)
+        redis_client = _get_redis_client_from_request(request)
+        ratelimiter: DecisionEngine = STRATEGIES[strategy](
+            key_args, limit, window, redis_client=redis_client
+        )
 
         if ratelimiter.allow(key_args):
             return await func(*args, **kwargs)

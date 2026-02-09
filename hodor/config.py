@@ -17,7 +17,7 @@ class HodorConfig:
         DEFAULT_MAX_REQUESTS: int,
         DEFAULT_TIME_INTERVAL: int,
         REDIS_CONFIG: dict,
-        DEFAULT_RATE_LIMITER_STRATEGY="sliding-window-counter",
+        DEFAULT_RATE_LIMITER_STRATEGY="fixed-window-counter",
         **kwargs,
     ):
         self.DEFAULT_LIMIT = DEFAULT_MAX_REQUESTS
