@@ -72,7 +72,9 @@ def register_rate_limit_scripts(redis_client):
     Load Lua scripts into Redis so EVALSHA works without sending the script body.
     Call once at app startup (e.g. FastAPI lifespan) after the Redis client is ready.
     """
+    _LOG.info("Registering rate limit scripts in Redis.")
     redis_client.script_load(FIXED_WINDOW_ATOMIC_SCRIPT)
+    _LOG.info("Rate limit scripts registered successfully.")
 
 
 def _fixed_window_allow(redis_client, key_string, limit, window_end, ttl):
@@ -81,17 +83,31 @@ def _fixed_window_allow(redis_client, key_string, limit, window_end, ttl):
     Uses EVALSHA when the script is cached in Redis; falls back to EVAL on NOSCRIPT.
     Returns True if the request is allowed, False if rate limited.
     """
+    _LOG.debug(
+        "Attempting to allow request with key: %s, limit: %d, window_end: %f, ttl: %d",
+        key_string, limit, window_end, ttl
+    )
     try:
         result = redis_client.evalsha(
             _FIXED_WINDOW_SCRIPT_SHA, 1, key_string, limit, window_end, ttl
         )
+        _LOG.info("EVALSHA executed successfully for key: %s", key_string)
     except ResponseError as e:
         if "NOSCRIPT" not in str(e):
+            _LOG.error("Redis ResponseError: %s", str(e))
             raise
+        _LOG.warning("Script not cached in Redis. Falling back to EVAL for key: %s", key_string)
         result = redis_client.eval(
             FIXED_WINDOW_ATOMIC_SCRIPT, 1, key_string, limit, window_end, ttl
         )
-    return result == 1
+        _LOG.info("EVAL executed successfully for key: %s", key_string)
+
+    allowed = result == 1
+    if allowed:
+        _LOG.info("Request allowed for key: %s", key_string)
+    else:
+        _LOG.warning("Rate limit exceeded for key: %s", key_string)
+    return allowed
 
 
 class DecisionEngine(ABC):
@@ -238,13 +254,21 @@ class FixedWindowCounter(DecisionEngine):
         """
         key_string = self._key_string(key_args)
         window_end = self._window_end_ts(self.window)
-        return _fixed_window_allow(
+        _LOG.debug(
+            "Checking rate limit for key: %s with window_end: %f", key_string, window_end
+        )
+        allowed = _fixed_window_allow(
             self.redis_client,
             key_string,
             self.limit,
             window_end,
             FIXED_WINDOW_KEY_TTL,
         )
+        if allowed:
+            _LOG.info("Request allowed for key: %s", key_string)
+        else:
+            _LOG.warning("Request denied for key: %s due to rate limit.", key_string)
+        return allowed
 
 
 class SlidingWindowLog(DecisionEngine):
