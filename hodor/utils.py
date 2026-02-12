@@ -2,7 +2,7 @@ import logging
 import sys
 
 
-def get_logger(name, level=logging.DEBUG):
+def get_logger(name, level=logging.INFO):
     """
     Return a module logger configured to write to stdout.
     Safe to call multiple times from different modules — handlers are only added once.
