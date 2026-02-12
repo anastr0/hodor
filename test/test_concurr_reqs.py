@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 
 ENDPOINTS = [
-    {"url": "http://localhost:5000/fixed", "method": "GET"},
+    {"url": "http://localhost:8000/api/fixed", "method": "GET"},
 ]
 
 def fetch(session, url, method):
