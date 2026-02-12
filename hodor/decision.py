@@ -239,16 +239,23 @@ class FixedWindowCounter(DecisionEngine):
         window_boundary = self.get_window_boundary(self.window)
         expiry = expiry or window_boundary
         key_string = key_string or self.get_key_string(key_args)
+
         if nx:
-            self.redis_client.hsetnx(key_string, "timestamp", window_boundary)
-            self.redis_client.hsetnx(key_string, "count", 1)
-            self.redis_client.expire(key_string, FIXED_WINDOW_KEY_TTL)
+            # Only set if key doesn't exist. Not atomic with get, but useful for testing / debug.
+            pipeline = self.redis_client.pipeline(transaction=False)
+            pipeline.hsetnx(key_string, "timestamp", window_boundary)
+            pipeline.hsetnx(key_string, "count", 1)
+            pipeline.expire(key_string, FIXED_WINDOW_KEY_TTL)
+            pipeline.execute()
         else:
             values = values or {
                 "timestamp": window_boundary,
                 "count": 1,
             }
-            self.redis_client.hset(key_string, mapping=values)
+            pipeline = self.redis_client.pipeline(transaction=False)
+            pipeline.hset(key_string, mapping=values)
+            pipeline.expire(key_string, FIXED_WINDOW_KEY_TTL)
+            pipeline.execute()
 
     def allow(self, key_args):
         """
