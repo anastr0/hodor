@@ -17,6 +17,7 @@ _LOG = get_logger(__name__, logging.DEBUG)
 
 # TODO : deprecate wrappers in favor of using DecisionEngine directly in dependencies
 
+
 def _get_redis_client_from_request(request: Request):
     redis_client = getattr(getattr(request, "app", None), "state", None)
     redis_client = getattr(redis_client, "redis_client", None)

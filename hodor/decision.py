@@ -2,6 +2,8 @@ import hashlib
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 
+from fastapi import HTTPException, Request, status
+from fastapi.responses import JSONResponse
 import redis
 from redis.exceptions import ResponseError
 
@@ -31,9 +33,7 @@ _LOG = get_logger(__name__)
 # -----------------------------------------------------------------------------
 
 # SHA1 of script for EVALSHA (one round-trip, script not sent each time).
-_FIXED_WINDOW_SCRIPT_SHA = hashlib.sha1(
-    FIXED_WINDOW_ATOMIC_SCRIPT.encode()
-).hexdigest()
+_FIXED_WINDOW_SCRIPT_SHA = hashlib.sha1(FIXED_WINDOW_ATOMIC_SCRIPT.encode()).hexdigest()
 
 
 def register_rate_limit_scripts(redis_client):
@@ -48,12 +48,22 @@ def register_rate_limit_scripts(redis_client):
     _LOG.debug("Rate limit scripts registered successfully.")
 
 
+def _get_redis_client_from_request(request: Request):
+    redis_client = getattr(getattr(request, "app", None), "state", None)
+    redis_client = getattr(redis_client, "redis_client", None)
+    if redis_client is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal Server Error",
+        )
+    return redis_client
+
+
 class DecisionEngine(ABC):
     """Strategy pattern for deciding ratelimit option"""
 
-    def __init__(self, redis_client=None):
-        super().__init__()
-        self.redis_client = redis_client
+    def __init__(self):
+        pass
 
     @abstractmethod
     def _set_strategy(self):
@@ -117,11 +127,21 @@ class FixedWindowCounter(DecisionEngine):
         self,
         limit=RL_CONFIG.DEFAULT_LIMIT,
         window=RL_CONFIG.DEFAULT_WINDOW,
-        redis_client=None,
         *args,
         **kwargs,
     ):
-        super().__init__(redis_client=redis_client)
+        """
+        Docstring for __init__
+        
+        :param self: Description
+        :param limit: Description
+        :param window: Description
+
+        Use as dependency in FastAPI routes:
+            @app.get("/endpoint", dependencies=[Depends(FixedWindowCounter(limit, window))])
+        This ensures one instance per route with custom limit/window.
+        """
+        super().__init__()
         self._set_strategy(limit, window, *args, **kwargs)
 
     def _set_strategy(
@@ -138,6 +158,7 @@ class FixedWindowCounter(DecisionEngine):
         """
         self.limit = limit
         self.window = window
+        self.redis_client: redis.Redis = None
         # Key is created atomically on first allow() via Lua script; no init here
         # to avoid races when multiple instances receive the first request.
 
@@ -160,20 +181,39 @@ class FixedWindowCounter(DecisionEngine):
         current_time = datetime.now().timestamp()
         _LOG.debug(
             "Attempting to allow request with key: %s, limit: %d, window_end: %f, ttl: %d, current_time: %f",
-            key_string, limit, window_end, ttl, current_time
+            key_string,
+            limit,
+            window_end,
+            ttl,
+            current_time,
         )
         try:
             result = self.redis_client.evalsha(
-                _FIXED_WINDOW_SCRIPT_SHA, 1, key_string, limit, window_end, ttl, current_time
+                _FIXED_WINDOW_SCRIPT_SHA,
+                1,
+                key_string,
+                limit,
+                window_end,
+                ttl,
+                current_time,
             )
             _LOG.debug("EVALSHA executed successfully for key: %s", key_string)
         except ResponseError as e:
             if "NOSCRIPT" not in str(e):
                 _LOG.error("Redis ResponseError: %s", str(e))
                 raise
-            _LOG.debug("Script not cached in Redis. Falling back to EVAL for key: %s", key_string)
+            _LOG.debug(
+                "Script not cached in Redis. Falling back to EVAL for key: %s",
+                key_string,
+            )
             result = self.redis_client.eval(
-                FIXED_WINDOW_ATOMIC_SCRIPT, 1, key_string, limit, window_end, ttl, current_time
+                FIXED_WINDOW_ATOMIC_SCRIPT,
+                1,
+                key_string,
+                limit,
+                window_end,
+                ttl,
+                current_time,
             )
             _LOG.debug("EVAL executed successfully for key: %s", key_string)
 
@@ -192,7 +232,9 @@ class FixedWindowCounter(DecisionEngine):
         key_string = self._key_string(key_args)
         window_end = self._window_end_ts(self.window)
         _LOG.debug(
-            "Checking rate limit for key: %s with window_end: %f", key_string, window_end
+            "Checking rate limit for key: %s with window_end: %f",
+            key_string,
+            window_end,
         )
         allowed = self._fixed_window_allow(
             key_string,
@@ -205,6 +247,21 @@ class FixedWindowCounter(DecisionEngine):
         else:
             _LOG.debug("Request denied for key: %s due to rate limit.", key_string)
         return allowed
+
+    async def __call__(self, request: Request):
+        if not self.redis_client:
+            # Lazy init of redis_client from app state
+            # only runs once per instance
+            self.redis_client = request.app.state.redis_client
+
+        if self.allow((request.scope.get("endpoint"), request.client.host)):
+            return True
+
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="You have exceeded your limit.",
+            headers={"Retry-After": "60"},
+        )
 
 
 class SlidingWindowLog(DecisionEngine):

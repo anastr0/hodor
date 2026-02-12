@@ -44,6 +44,7 @@ return 0
 # TTL for the rate-limit key (seconds). Should be >= window to avoid early expiry.
 FIXED_WINDOW_KEY_TTL = 300
 
+
 class HodorConfig:
     def __init__(
         self,

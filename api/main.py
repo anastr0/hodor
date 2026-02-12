@@ -4,13 +4,13 @@ from contextlib import asynccontextmanager
 from typing import Union
 
 import redis
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from pydantic import BaseModel
 from redis.exceptions import RedisError
 
 from hodor import async_ratelimiter, sync_ratelimiter
 from hodor.config import RL_CONFIG
-from hodor.decision import register_rate_limit_scripts
+from hodor.decision import FixedWindowCounter, register_rate_limit_scripts
 
 
 def _build_redis_client() -> redis.Redis:
@@ -51,6 +51,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+
 class Item(BaseModel):
     name: str
     price: float
@@ -62,8 +63,16 @@ def read_root():
     return {"Hello": "World"}
 
 
-@app.get("/items/{item_id}")
-@sync_ratelimiter
+@app.get(
+    "/items/{item_id}",
+    dependencies=[
+        Depends(
+            FixedWindowCounter(
+                limit=RL_CONFIG.DEFAULT_LIMIT, window=RL_CONFIG.DEFAULT_WINDOW
+            )
+        )
+    ],
+)
 def read_item(item_id: int, request: Request, q: Union[str, None] = None):
     return {"item_id": item_id, "q": q}
 
