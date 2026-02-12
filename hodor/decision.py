@@ -132,7 +132,7 @@ class FixedWindowCounter(DecisionEngine):
     ):
         """
         Docstring for __init__
-        
+
         :param self: Description
         :param limit: Description
         :param window: Description

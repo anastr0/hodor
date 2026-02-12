@@ -60,11 +60,19 @@ class Item(BaseModel):
 
 @app.get("/")
 def read_root():
-    return {"Hello": "World"}
+    return {
+        "Title": "Test different rate limit strategies with FastAPI and Redis in a distributed setting",
+        "Description": "This is a sample API to test different rate limit strategies with FastAPI and Redis. You can use the /items/{item_id} endpoint to test the rate limit.",
+        "Endpoints": {
+            "/fixed": "Fixed rate limit of 5 requests per second",
+            "/sliding": "Sliding window rate limit of 5 requests per second",
+            "/token": "Token bucket rate limit of 5 requests per second",
+        },
+    }
 
 
 @app.get(
-    "/items/{item_id}",
+    "/fixed",
     dependencies=[
         Depends(
             FixedWindowCounter(
@@ -73,16 +81,15 @@ def read_root():
         )
     ],
 )
-def read_item(item_id: int, request: Request, q: Union[str, None] = None):
-    return {"item_id": item_id, "q": q}
+def read_item(request: Request):
+    return {"message": "This endpoint uses fixed window rate limiting"}
 
 
-@app.get("/aitems/{item_id}")
-@async_ratelimiter
-async def read_item_async(item_id: int, request: Request, q: Union[str, None] = None):
-    return {"item_id": item_id, "q": q}
+@app.get("/sliding")
+def create_item(request: Request):
+    return {"message": "This endpoint uses sliding window rate limiting"}
 
 
-@app.put("/items/{item_id}")
-def update_item(item_id: int, item: Item):
-    return {"item_name": item.name, "item_id": item_id}
+@app.get("/token")
+def update_item(request: Request):
+    return {"message": "This endpoint uses token bucket rate limiting"}
