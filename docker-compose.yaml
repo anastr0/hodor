@@ -29,8 +29,14 @@ services:
       - redisdata:/data
 
   hodor_api:
-    container_name: hodor_api
+    environment:
+      - REDIS_HOST=hodor_cache
     build: .
+    deploy:
+      replicas: 3
+      resources:
+        reservations:
+          memory: 512M
     depends_on:
       hodor_db:
         condition: service_healthy

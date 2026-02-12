@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
                 pass
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, root_path="/api/v1/hodor")
 
 
 class Item(BaseModel):
