@@ -1,10 +1,12 @@
+import os
+
 TEMP_ENV_CONFIG = {
     "LIMIT": 0,
     "DEFAULT_MAX_REQUESTS": 1,  # 10 reqs/sec
-    "DEFAULT_TIME_INTERVAL": 5,  # 1 sec
+    "DEFAULT_TIME_INTERVAL": 10,  # 1 sec
     "DEFAULT_STRATEGY": "fixed-window-counter",
     "REDIS_CONFIG": {
-        "host": "localhost",
+        "host": os.getenv("REDIS_HOST", "localhost"),
         "port": 6379,
         "db": 0,
     },
