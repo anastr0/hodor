@@ -35,7 +35,7 @@ def sync_ratelimiter(func):
         key_args = (func.__name__, request.client.host)
         redis_client = _get_redis_client_from_request(request)
         ratelimiter: DecisionEngine = STRATEGIES[strategy](
-            key_args, limit, window, redis_client=redis_client
+            limit, window, redis_client=redis_client
         )
 
         if ratelimiter.allow(key_args):

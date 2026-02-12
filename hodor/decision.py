@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import redis
 from redis.exceptions import ResponseError
 
-from .config import RL_CONFIG
+from .config import RL_CONFIG, FIXED_WINDOW_ATOMIC_SCRIPT, FIXED_WINDOW_KEY_TTL
 from .utils import get_logger
 
 _LOG = get_logger(__name__)
@@ -29,39 +29,6 @@ _LOG = get_logger(__name__)
 #   - Else if count < limit: increment count, allow.
 #   - Else: deny.
 # -----------------------------------------------------------------------------
-FIXED_WINDOW_ATOMIC_SCRIPT = """
-local key = KEYS[1]
-local limit = tonumber(ARGV[1])
-local window_end = tonumber(ARGV[2])
-local ttl = tonumber(ARGV[3])
-local current_time = tonumber(ARGV[4])
-
-local ts = redis.call('HGET', key, 'timestamp')
-local cnt = redis.call('HGET', key, 'count')
-
-if ts == false or ts == nil then
-  redis.call('HSET', key, 'timestamp', window_end, 'count', 1)
-  redis.call('EXPIRE', key, ttl)
-  return 1
-end
-
-if tonumber(ts) <= current_time then
-  redis.call('HSET', key, 'timestamp', window_end, 'count', 1)
-  redis.call('EXPIRE', key, ttl)
-  return 1
-end
-
-local count = tonumber(cnt or 0)
-if count < limit then
-  redis.call('HINCRBY', key, 'count', 1)
-  redis.call('EXPIRE', key, ttl)
-  return 1
-end
-
-return 0
-"""
-# TTL for the rate-limit key (seconds). Should be >= window to avoid early expiry.
-FIXED_WINDOW_KEY_TTL = 300
 
 # SHA1 of script for EVALSHA (one round-trip, script not sent each time).
 _FIXED_WINDOW_SCRIPT_SHA = hashlib.sha1(
@@ -73,44 +40,12 @@ def register_rate_limit_scripts(redis_client):
     """
     Load Lua scripts into Redis so EVALSHA works without sending the script body.
     Call once at app startup (e.g. FastAPI lifespan) after the Redis client is ready.
+
+    Note: to be called at server startup, not on every request.
     """
     _LOG.debug("Registering rate limit scripts in Redis.")
     redis_client.script_load(FIXED_WINDOW_ATOMIC_SCRIPT)
     _LOG.debug("Rate limit scripts registered successfully.")
-
-
-def _fixed_window_allow(redis_client, key_string, limit, window_end, ttl):
-    """
-    Run the fixed-window Lua script atomically.
-    Uses EVALSHA when the script is cached in Redis; falls back to EVAL on NOSCRIPT.
-    Returns True if the request is allowed, False if rate limited.
-    """
-    current_time = datetime.now().timestamp()
-    _LOG.debug(
-        "Attempting to allow request with key: %s, limit: %d, window_end: %f, ttl: %d, current_time: %f",
-        key_string, limit, window_end, ttl, current_time
-    )
-    try:
-        result = redis_client.evalsha(
-            _FIXED_WINDOW_SCRIPT_SHA, 1, key_string, limit, window_end, ttl, current_time
-        )
-        _LOG.debug("EVALSHA executed successfully for key: %s", key_string)
-    except ResponseError as e:
-        if "NOSCRIPT" not in str(e):
-            _LOG.error("Redis ResponseError: %s", str(e))
-            raise
-        _LOG.debug("Script not cached in Redis. Falling back to EVAL for key: %s", key_string)
-        result = redis_client.eval(
-            FIXED_WINDOW_ATOMIC_SCRIPT, 1, key_string, limit, window_end, ttl, current_time
-        )
-        _LOG.debug("EVAL executed successfully for key: %s", key_string)
-
-    allowed = result == 1
-    if allowed:
-        _LOG.debug("Request allowed for key: %s", key_string)
-    else:
-        _LOG.debug("Rate limit exceeded for key: %s", key_string)
-    return allowed
 
 
 class DecisionEngine(ABC):
@@ -180,7 +115,6 @@ class LeakingBucket(DecisionEngine):
 class FixedWindowCounter(DecisionEngine):
     def __init__(
         self,
-        key_args,
         limit=RL_CONFIG.DEFAULT_LIMIT,
         window=RL_CONFIG.DEFAULT_WINDOW,
         redis_client=None,
@@ -188,11 +122,10 @@ class FixedWindowCounter(DecisionEngine):
         **kwargs,
     ):
         super().__init__(redis_client=redis_client)
-        self._set_strategy(key_args, limit, window, *args, **kwargs)
+        self._set_strategy(limit, window, *args, **kwargs)
 
     def _set_strategy(
         self,
-        key_args,
         limit=RL_CONFIG.DEFAULT_LIMIT,
         window=RL_CONFIG.DEFAULT_WINDOW,
         *args,
@@ -218,44 +151,38 @@ class FixedWindowCounter(DecisionEngine):
         """Unix timestamp of the current window end (now + window)."""
         return (datetime.now() + timedelta(seconds=window_seconds)).timestamp()
 
-    def get_key_string(self, key_args):
-        """Public alias for _key_string (tests / legacy)."""
-        return self._key_string(key_args)
+    def _fixed_window_allow(self, key_string, limit, window_end, ttl):
+        """
+        Run the fixed-window Lua script atomically.
+        Uses EVALSHA when the script is cached in Redis; falls back to EVAL on NOSCRIPT.
+        Returns True if the request is allowed, False if rate limited.
+        """
+        current_time = datetime.now().timestamp()
+        _LOG.debug(
+            "Attempting to allow request with key: %s, limit: %d, window_end: %f, ttl: %d, current_time: %f",
+            key_string, limit, window_end, ttl, current_time
+        )
+        try:
+            result = self.redis_client.evalsha(
+                _FIXED_WINDOW_SCRIPT_SHA, 1, key_string, limit, window_end, ttl, current_time
+            )
+            _LOG.debug("EVALSHA executed successfully for key: %s", key_string)
+        except ResponseError as e:
+            if "NOSCRIPT" not in str(e):
+                _LOG.error("Redis ResponseError: %s", str(e))
+                raise
+            _LOG.debug("Script not cached in Redis. Falling back to EVAL for key: %s", key_string)
+            result = self.redis_client.eval(
+                FIXED_WINDOW_ATOMIC_SCRIPT, 1, key_string, limit, window_end, ttl, current_time
+            )
+            _LOG.debug("EVAL executed successfully for key: %s", key_string)
 
-    def get_window_boundary(self, window):
-        """Public alias for _window_end_ts (legacy set_key)."""
-        return self._window_end_ts(window)
-
-    # --- Legacy / debug (racy if used for rate decisions; use allow() instead) ---
-    def get_value(self, key_args):
-        return self.redis_client.hgetall(self.get_key_string(key_args))
-
-    def get_key_value(self, key_string):
-        return self.redis_client.hgetall(key_string)
-
-    def set_key(
-        self, key_args=None, key_string=None, expiry=None, values=None, nx=False
-    ):
-        window_boundary = self.get_window_boundary(self.window)
-        expiry = expiry or window_boundary
-        key_string = key_string or self.get_key_string(key_args)
-
-        if nx:
-            # Only set if key doesn't exist. Not atomic with get, but useful for testing / debug.
-            pipeline = self.redis_client.pipeline(transaction=False)
-            pipeline.hsetnx(key_string, "timestamp", window_boundary)
-            pipeline.hsetnx(key_string, "count", 1)
-            pipeline.expire(key_string, FIXED_WINDOW_KEY_TTL)
-            pipeline.execute()
+        allowed = result == 1
+        if allowed:
+            _LOG.debug("Request allowed for key: %s", key_string)
         else:
-            values = values or {
-                "timestamp": window_boundary,
-                "count": 1,
-            }
-            pipeline = self.redis_client.pipeline(transaction=False)
-            pipeline.hset(key_string, mapping=values)
-            pipeline.expire(key_string, FIXED_WINDOW_KEY_TTL)
-            pipeline.execute()
+            _LOG.debug("Rate limit exceeded for key: %s", key_string)
+        return allowed
 
     def allow(self, key_args):
         """
@@ -267,8 +194,7 @@ class FixedWindowCounter(DecisionEngine):
         _LOG.debug(
             "Checking rate limit for key: %s with window_end: %f", key_string, window_end
         )
-        allowed = _fixed_window_allow(
-            self.redis_client,
+        allowed = self._fixed_window_allow(
             key_string,
             self.limit,
             window_end,
