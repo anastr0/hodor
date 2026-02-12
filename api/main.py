@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import socket
 from typing import Union
 
 import redis
@@ -8,7 +9,6 @@ from fastapi import Depends, FastAPI, Request
 from pydantic import BaseModel
 from redis.exceptions import RedisError
 
-from hodor import async_ratelimiter, sync_ratelimiter
 from hodor.config import RL_CONFIG
 from hodor.decision import FixedWindowCounter, register_rate_limit_scripts
 
@@ -61,6 +61,7 @@ class Item(BaseModel):
 @app.get("/")
 def read_root():
     return {
+        "Container ID": socket.gethostname(),
         "Title": "Test different rate limit strategies with FastAPI and Redis in a distributed setting",
         "Description": "This is a sample API to test different rate limit strategies with FastAPI and Redis. You can use the /items/{item_id} endpoint to test the rate limit.",
         "Endpoints": {
