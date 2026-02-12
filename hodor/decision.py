@@ -1,11 +1,89 @@
-import json
+import hashlib
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
+
+import redis
+from redis.exceptions import ResponseError
 
 from .config import RL_CONFIG
 from .utils import get_logger
 
 _LOG = get_logger(__name__)
+
+# -----------------------------------------------------------------------------
+# Lua script: atomic fixed-window rate limit (single round-trip, no races)
+# -----------------------------------------------------------------------------
+# Runs entirely inside Redis so concurrent requests from multiple instances
+# for the same key are serialized and never see a stale read or double-increment.
+#
+# KEYS[1]: rate-limit key (e.g. hash of endpoint + client IP)
+# ARGV[1]: limit (max requests per window)
+# ARGV[2]: window_end_ts (end of current window as Unix timestamp)
+# ARGV[3]: ttl_seconds (key expiry, e.g. 300)
+#
+# Returns: 1 = allow, 0 = rate limit exceeded
+#
+# Logic:
+#   - If key missing or stored window has ended: set new window, count=1, allow.
+#   - Else if count < limit: increment count, allow.
+#   - Else: deny.
+# -----------------------------------------------------------------------------
+FIXED_WINDOW_ATOMIC_SCRIPT = """
+local key = KEYS[1]
+local limit = tonumber(ARGV[1])
+local window_end = tonumber(ARGV[2])
+local ttl = tonumber(ARGV[3])
+
+local ts = redis.call('HGET', key, 'timestamp')
+local cnt = redis.call('HGET', key, 'count')
+
+if ts == false or ts == nil then
+  redis.call('HSET', key, 'timestamp', window_end, 'count', 1)
+  redis.call('EXPIRE', key, ttl)
+  return 1
+end
+
+if tonumber(ts) < window_end then
+  redis.call('HSET', key, 'timestamp', window_end, 'count', 1)
+  redis.call('EXPIRE', key, ttl)
+  return 1
+end
+
+local count = tonumber(cnt or 0)
+if count < limit then
+  redis.call('HINCRBY', key, 'count', 1)
+  redis.call('EXPIRE', key, ttl)
+  return 1
+end
+
+return 0
+"""
+# TTL for the rate-limit key (seconds). Should be >= window to avoid early expiry.
+FIXED_WINDOW_KEY_TTL = 300
+
+# SHA1 of script for EVALSHA (one round-trip, script not sent each time).
+_FIXED_WINDOW_SCRIPT_SHA = hashlib.sha1(
+    FIXED_WINDOW_ATOMIC_SCRIPT.encode()
+).hexdigest()
+
+
+def _fixed_window_allow(redis_client, key_string, limit, window_end, ttl):
+    """
+    Run the fixed-window Lua script atomically.
+    Uses EVALSHA when the script is cached in Redis; falls back to EVAL on NOSCRIPT.
+    Returns True if the request is allowed, False if rate limited.
+    """
+    try:
+        result = redis_client.evalsha(
+            _FIXED_WINDOW_SCRIPT_SHA, 1, key_string, limit, window_end, ttl
+        )
+    except ResponseError as e:
+        if "NOSCRIPT" not in str(e):
+            raise
+        result = redis_client.eval(
+            FIXED_WINDOW_ATOMIC_SCRIPT, 1, key_string, limit, window_end, ttl
+        )
+    return result == 1
 
 
 class DecisionEngine(ABC):
@@ -94,95 +172,71 @@ class FixedWindowCounter(DecisionEngine):
         **kwargs,
     ):
         """
-        Docstring for _set_strategy
-
         :param key_args: (function_name, client_IP)
-        :param limit: max requests can be allowed in given time window
-        :param window: time window for ratelimiting
+        :param limit: max requests allowed in the time window
+        :param window: time window in seconds for rate limiting
         """
-        key_string = self.get_key_string(
-            key_args
-        )  # TODO-autogenerate from view function
         self.limit = limit
         self.window = window
-        # window_boundary = self.get_window_boundary(window)
-        # TODO create key in redis with corresponding values,
-        # set expiry to window_boundary
+        # Key is created atomically on first allow() via Lua script; no init here
+        # to avoid races when multiple instances receive the first request.
 
-        self.set_key(key_string=key_string, nx=True)
+    def _key_string(self, key_args):
+        """Stable key for this (endpoint, client) pair; one hash call."""
+        func_name, client_ip = key_args[0], key_args[1]
+        payload = f"{func_name}:{client_ip}".encode("utf-8")
+        return hashlib.md5(payload).hexdigest()
+
+    def _window_end_ts(self, window_seconds):
+        """Unix timestamp of the current window end (now + window)."""
+        return (datetime.now() + timedelta(seconds=window_seconds)).timestamp()
 
     def get_key_string(self, key_args):
-        # TODO : create key from view/API func, for a specific user/IP
-        import hashlib
-
-        h = hashlib.md5()
-
-        func_name = key_args[0]
-        client_IP = key_args[1]
-        h.update(func_name.encode("UTF-8"))
-        h.update(client_IP.encode("UTF-8"))
-        return h.hexdigest()
+        """Public alias for _key_string (tests / legacy)."""
+        return self._key_string(key_args)
 
     def get_window_boundary(self, window):
-        return (datetime.now() + timedelta(seconds=window)).timestamp()
+        """Public alias for _window_end_ts (legacy set_key)."""
+        return self._window_end_ts(window)
 
+    # --- Legacy / debug (racy if used for rate decisions; use allow() instead) ---
     def get_value(self, key_args):
-        key_string = self.get_key_string(key_args)
+        return self.redis_client.hgetall(self.get_key_string(key_args))
+
+    def get_key_value(self, key_string):
         return self.redis_client.hgetall(key_string)
 
     def set_key(
         self, key_args=None, key_string=None, expiry=None, values=None, nx=False
     ):
-        # TODO : set key in redis
         window_boundary = self.get_window_boundary(self.window)
-        if not expiry:
-            expiry = window_boundary
-
-        if not key_string:
-            key_string = self.get_key_string(key_args)
-
+        expiry = expiry or window_boundary
+        key_string = key_string or self.get_key_string(key_args)
         if nx:
-            values = {
-                "timestamp": window_boundary,
-                "count": 1,  # how many requests allowed so far
-            }
             self.redis_client.hsetnx(key_string, "timestamp", window_boundary)
             self.redis_client.hsetnx(key_string, "count", 1)
-            self.redis_client.expire(key_string, 300)
+            self.redis_client.expire(key_string, FIXED_WINDOW_KEY_TTL)
         else:
-            if values is None:
-                values = {
-                    "timestamp": window_boundary,
-                    "count": 1,
-                }
+            values = values or {
+                "timestamp": window_boundary,
+                "count": 1,
+            }
             self.redis_client.hset(key_string, mapping=values)
 
-    def get_key_value(self, key_string):
-        return self.redis_client.hgetall(key_string)
-
     def allow(self, key_args):
-        """Return true if request can be allowed
-        False if ratelimit exceeded"""
-        key_string = self.get_key_string(key_args)
-        values = self.get_key_value(key_string)
-
-        if not values:
-            self.set_key(key_string=key_string)
-            return True
-        else:
-            if datetime.now() < datetime.fromtimestamp(
-                int(values["timestamp"].split(".")[0])
-            ):
-                if int(values["count"]) < self.limit:
-                    values["count"] = int(values["count"]) + 1
-                    self.set_key(key_string=key_string, values=values)
-                    return True
-                else:
-                    return False
-            else:
-                values["timestamp"] = self.get_window_boundary(self.window)
-                self.set_key(key_string=key_string, values=values)
-                return True
+        """
+        Decide if the request is allowed under the fixed-window limit.
+        Single Redis round-trip via EVALSHA (or EVAL on NOSCRIPT); atomic, no races.
+        """
+        key_string = self._key_string(key_args)
+        window_end = self._window_end_ts(self.window)
+        return _fixed_window_allow(
+            self.redis_client,
+            key_string,
+            self.limit,
+            window_end,
+            FIXED_WINDOW_KEY_TTL,
+        )
 
 
 class SlidingWindowLog(DecisionEngine):
