@@ -72,9 +72,9 @@ def register_rate_limit_scripts(redis_client):
     Load Lua scripts into Redis so EVALSHA works without sending the script body.
     Call once at app startup (e.g. FastAPI lifespan) after the Redis client is ready.
     """
-    _LOG.info("Registering rate limit scripts in Redis.")
+    _LOG.debug("Registering rate limit scripts in Redis.")
     redis_client.script_load(FIXED_WINDOW_ATOMIC_SCRIPT)
-    _LOG.info("Rate limit scripts registered successfully.")
+    _LOG.debug("Rate limit scripts registered successfully.")
 
 
 def _fixed_window_allow(redis_client, key_string, limit, window_end, ttl):
@@ -91,22 +91,22 @@ def _fixed_window_allow(redis_client, key_string, limit, window_end, ttl):
         result = redis_client.evalsha(
             _FIXED_WINDOW_SCRIPT_SHA, 1, key_string, limit, window_end, ttl
         )
-        _LOG.info("EVALSHA executed successfully for key: %s", key_string)
+        _LOG.debug("EVALSHA executed successfully for key: %s", key_string)
     except ResponseError as e:
         if "NOSCRIPT" not in str(e):
             _LOG.error("Redis ResponseError: %s", str(e))
             raise
-        _LOG.warning("Script not cached in Redis. Falling back to EVAL for key: %s", key_string)
+        _LOG.debug("Script not cached in Redis. Falling back to EVAL for key: %s", key_string)
         result = redis_client.eval(
             FIXED_WINDOW_ATOMIC_SCRIPT, 1, key_string, limit, window_end, ttl
         )
-        _LOG.info("EVAL executed successfully for key: %s", key_string)
+        _LOG.debug("EVAL executed successfully for key: %s", key_string)
 
     allowed = result == 1
     if allowed:
-        _LOG.info("Request allowed for key: %s", key_string)
+        _LOG.debug("Request allowed for key: %s", key_string)
     else:
-        _LOG.warning("Rate limit exceeded for key: %s", key_string)
+        _LOG.debug("Rate limit exceeded for key: %s", key_string)
     return allowed
 
 
@@ -265,9 +265,9 @@ class FixedWindowCounter(DecisionEngine):
             FIXED_WINDOW_KEY_TTL,
         )
         if allowed:
-            _LOG.info("Request allowed for key: %s", key_string)
+            _LOG.debug("Request allowed for key: %s", key_string)
         else:
-            _LOG.warning("Request denied for key: %s due to rate limit.", key_string)
+            _LOG.debug("Request denied for key: %s due to rate limit.", key_string)
         return allowed
 
 
