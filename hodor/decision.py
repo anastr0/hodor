@@ -20,6 +20,7 @@ _LOG = get_logger(__name__)
 # ARGV[1]: limit (max requests per window)
 # ARGV[2]: window_end_ts (end of current window as Unix timestamp)
 # ARGV[3]: ttl_seconds (key expiry, e.g. 300)
+# ARGV[4]: current_time (current time as Unix timestamp)
 #
 # Returns: 1 = allow, 0 = rate limit exceeded
 #
@@ -33,6 +34,7 @@ local key = KEYS[1]
 local limit = tonumber(ARGV[1])
 local window_end = tonumber(ARGV[2])
 local ttl = tonumber(ARGV[3])
+local current_time = tonumber(ARGV[4])
 
 local ts = redis.call('HGET', key, 'timestamp')
 local cnt = redis.call('HGET', key, 'count')
@@ -43,7 +45,7 @@ if ts == false or ts == nil then
   return 1
 end
 
-if tonumber(ts) < window_end then
+if tonumber(ts) <= current_time then
   redis.call('HSET', key, 'timestamp', window_end, 'count', 1)
   redis.call('EXPIRE', key, ttl)
   return 1
@@ -83,13 +85,14 @@ def _fixed_window_allow(redis_client, key_string, limit, window_end, ttl):
     Uses EVALSHA when the script is cached in Redis; falls back to EVAL on NOSCRIPT.
     Returns True if the request is allowed, False if rate limited.
     """
+    current_time = datetime.now().timestamp()
     _LOG.debug(
-        "Attempting to allow request with key: %s, limit: %d, window_end: %f, ttl: %d",
-        key_string, limit, window_end, ttl
+        "Attempting to allow request with key: %s, limit: %d, window_end: %f, ttl: %d, current_time: %f",
+        key_string, limit, window_end, ttl, current_time
     )
     try:
         result = redis_client.evalsha(
-            _FIXED_WINDOW_SCRIPT_SHA, 1, key_string, limit, window_end, ttl
+            _FIXED_WINDOW_SCRIPT_SHA, 1, key_string, limit, window_end, ttl, current_time
         )
         _LOG.debug("EVALSHA executed successfully for key: %s", key_string)
     except ResponseError as e:
@@ -98,7 +101,7 @@ def _fixed_window_allow(redis_client, key_string, limit, window_end, ttl):
             raise
         _LOG.debug("Script not cached in Redis. Falling back to EVAL for key: %s", key_string)
         result = redis_client.eval(
-            FIXED_WINDOW_ATOMIC_SCRIPT, 1, key_string, limit, window_end, ttl
+            FIXED_WINDOW_ATOMIC_SCRIPT, 1, key_string, limit, window_end, ttl, current_time
         )
         _LOG.debug("EVAL executed successfully for key: %s", key_string)
 
