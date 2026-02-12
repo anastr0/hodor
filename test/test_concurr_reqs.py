@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 
 ENDPOINTS = [
-    {"url": "http://localhost:8000/api/fixed", "method": "GET"},
+    {"url": "http://localhost:8000/api/v1/hodor/fixed", "method": "GET"},
 ]
 
 def fetch(session, url, method):
@@ -48,6 +48,10 @@ def load_test():
                 print(f"Status {status}: {count} responses")
 
             print(f"Total time taken: {end_time - start_time} seconds")
+            assert status_counter[200] > 0, "Expected some successful responses, but got none."
+
+            expected_max_success = 1 + ((end_time - start_time + 1) // 10) # Assuming a max of 5 successful requests per second
+            assert status_counter[200] < expected_max_success, f"Expected at most {expected_max_success} successful responses, but got {status_counter[200]} successful responses."
 
 if __name__ == "__main__":
     load_test()
