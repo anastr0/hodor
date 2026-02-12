@@ -10,6 +10,7 @@ from redis.exceptions import RedisError
 
 from hodor import async_ratelimiter, sync_ratelimiter
 from hodor.config import RL_CONFIG
+from hodor.decision import register_rate_limit_scripts
 
 
 def _build_redis_client() -> redis.Redis:
@@ -33,6 +34,7 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("Redis unreachable during startup") from e
 
     app.state.redis_client = client
+    register_rate_limit_scripts(client)
     try:
         yield
     finally:

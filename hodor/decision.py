@@ -67,6 +67,14 @@ _FIXED_WINDOW_SCRIPT_SHA = hashlib.sha1(
 ).hexdigest()
 
 
+def register_rate_limit_scripts(redis_client):
+    """
+    Load Lua scripts into Redis so EVALSHA works without sending the script body.
+    Call once at app startup (e.g. FastAPI lifespan) after the Redis client is ready.
+    """
+    redis_client.script_load(FIXED_WINDOW_ATOMIC_SCRIPT)
+
+
 def _fixed_window_allow(redis_client, key_string, limit, window_end, ttl):
     """
     Run the fixed-window Lua script atomically.
