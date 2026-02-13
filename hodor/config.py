@@ -1,16 +1,34 @@
 import os
+from typing import Any, Callable
 
-TEMP_ENV_CONFIG = {
-    "LIMIT": 0,
-    "DEFAULT_MAX_REQUESTS": 1,  # 10 reqs/sec
-    "DEFAULT_TIME_INTERVAL": 10,  # 1 sec
-    "DEFAULT_STRATEGY": "fixed-window-counter",
-    "REDIS_CONFIG": {
-        "host": os.getenv("REDIS_HOST", "localhost"),
-        "port": 6379,
-        "db": 0,
-    },
-}  ## TODO : replace with environ obj
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def _env(key: str, default: Any = None, coerce: Callable[[str], Any] = lambda x: x) -> Any:
+    """Read env var; apply coerce and return default if unset or empty."""
+    raw = os.getenv(key)
+    if raw is None or raw == "":
+        return default
+    return coerce(raw)
+
+
+def _load_redis_config() -> dict[str, Any]:
+    return {
+        "host": _env("REDIS_HOST", "localhost"),
+        "port": _env("REDIS_PORT", 6379, int),
+        "db": _env("REDIS_DB", 0, int),
+    }
+
+
+def _load_hodor_config() -> dict[str, Any]:
+    return {
+        "DEFAULT_MAX_REQUESTS": _env("HODOR_DEFAULT_MAX_REQUESTS", 5, int),
+        "DEFAULT_TIME_INTERVAL": _env("HODOR_DEFAULT_TIME_INTERVAL", 10, int),
+        "DEFAULT_RATE_LIMITER_STRATEGY": _env("HODOR_DEFAULT_STRATEGY", "fixed-window-counter"),
+        "REDIS_CONFIG": _load_redis_config(),
+    }
 
 FIXED_WINDOW_ATOMIC_SCRIPT = """
 local key = KEYS[1]
@@ -63,4 +81,4 @@ class HodorConfig:
         self.REDIS_CONFIG = REDIS_CONFIG
 
 
-RL_CONFIG = HodorConfig(**TEMP_ENV_CONFIG)
+RL_CONFIG = HodorConfig(**_load_hodor_config())

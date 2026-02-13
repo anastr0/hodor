@@ -31,6 +31,8 @@ services:
   hodor_api:
     environment:
       - REDIS_HOST=hodor_cache
+    env_file:
+      - .env
     build: .
     deploy:
       replicas: 3
