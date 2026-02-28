@@ -254,7 +254,7 @@ class FixedWindowCounter(DecisionEngine):
             # only runs once per instance
             self.redis_client = request.app.state.redis_client
 
-        if self.allow((request.scope.get("endpoint"), request.client.host)):
+        if self.allow((request.scope.get("endpoint").__name__, request.client.host)):
             return True
 
         raise HTTPException(
